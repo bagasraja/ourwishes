@@ -39,4 +39,4 @@ Existing local-only accounts remain on the browser where they were created. They
 
 ## Wishlist prices and photos
 
-Prices are stored as whole Indonesian rupiah amounts. In the add-wish form, choose **— Belum tahu harganya** to save no amount; the card displays `—` instead of `Rp0`. Leave the image URL blank to choose a sample photo from words in the wish title or collection, such as `tas`, `rumah`, `sofa`, or `lampu`. A valid HTTPS image URL always takes priority.
+Prices are stored as whole Indonesian rupiah amounts. In the add-wish form, choose **— Belum tahu harganya** to save no amount; the card displays `—` instead of `Rp0`. Leave the image URL blank to select a verified photo for common item types or generate a product photo from the item title. Generated image requests send the wish title to Pollinations; enter your own HTTPS image URL if you don't want the title sent to that service. If image generation is unavailable, the app uses a neutral gift image rather than an unrelated product photo.
