@@ -8,7 +8,7 @@ const cloudEnabled = Boolean(
 	typeof cloudConfig.publishableKey === "string" && cloudConfig.publishableKey.trim()
 );
 const cloud = cloudEnabled ? window.supabase.createClient(cloudConfig.url, cloudConfig.publishableKey) : null;
-const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85";
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1513201099705-a9746e1e201f?auto=format&fit=crop&w=900&q=85";
 const CAMERA_IMAGE = "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=900&q=85";
 const LEGACY_CAMERA_FALLBACK = "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=900&q=85";
 const PREVIEW_ITEMS = [
@@ -52,7 +52,7 @@ function normalizeAccount(account) {
 		...account,
 		items: Array.isArray(account.items) ? account.items.map(({ saved, ...item }) => ({
 			...item,
-			image: item.image === LEGACY_CAMERA_FALLBACK && !isCameraWish(item.title) ? automaticImage(item.title, item.category) : item.image,
+			image: item.image === LEGACY_CAMERA_FALLBACK && !isCameraWish(item.title) ? curatedFallbackImage(item.title, item.category) : item.image,
 			received: Boolean(item.received)
 		})) : [],
 		categories: Array.isArray(account.categories) ? account.categories : [...DEFAULT_CATEGORIES]
@@ -79,7 +79,7 @@ function mapCloudWish(row) {
 		title,
 		price: row.price === null ? null : Number(row.price) || 0,
 		category,
-		image: row.image_url === LEGACY_CAMERA_FALLBACK && !isCameraWish(title) ? automaticImage(title, category) : row.image_url || "",
+		image: row.image_url === LEGACY_CAMERA_FALLBACK && !isCameraWish(title) ? curatedFallbackImage(title, category) : row.image_url || "",
 		note: row.note || "",
 		received: Boolean(row.received),
 		createdAt: new Date(row.created_at).getTime()
@@ -182,55 +182,45 @@ function currentItems() {
 	return state.account ? state.account.items : PREVIEW_ITEMS;
 }
 
-function automaticImage(title, category) {
-	const keywords = `${title || ""} ${category || ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function imageForKeywords(value) {
+	const keywords = String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+	if (!keywords) return "";
 	if (isCameraWish(keywords)) return CAMERA_IMAGE;
-	if (/\b(sepatu|shoe|shoes|sneaker|sneakers|sandal|sandals|boots|boot|footwear|heels)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(tas|bag|handbag|tote|purse|backpack|ransel)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(headphone|headphones|earphone|earphones|headset|audio)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(buku|book|novel|journal|jurnal|notebook|komik|comic)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(tanaman|plant|flower|bunga|pot|succulent)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(baju|shirt|t-shirt|kaos|clothes|clothing|jacket|jaket|dress|hoodie)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(jam|watch|smartwatch)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(laptop|computer|komputer)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(phone|ponsel|hp|smartphone|tablet|ipad)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(perhiasan|jewelry|jewellery|kalung|necklace|cincin|ring|gelang|bracelet|anting|earrings)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(mobil|car|vehicle|kendaraan)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(sepeda|bicycle|bike)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1485965120184-e220f721d03e?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(anjing|dog|puppy|kucing|cat|pet|hewan)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(makeup|make-up|cosmetic|kosmetik|lipstick|lipstik|skincare|parfum|perfume)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=900&q=85";
-	}
-	if (/\b(rumah|home|sofa|furniture|furnitur|lamp|lampu|vase|vas|meja|kursi|rak|bed|kasur)\b/.test(keywords)) {
-		return "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85";
-	}
-	return FALLBACK_IMAGE;
+	if (/\b(rumah mewah|luxury home|mansion|villa|fasad|facade|house exterior|modern house|rumah modern|rumah besar)\b/.test(keywords)) return "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=900&q=85";
+	if (/\b(sofa|furniture|furnitur|lamp|lampu|vase|vas|meja|kursi|rak|bed|kasur|interior)\b/.test(keywords)) return "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85";
+	if (/\b(rumah|home|house|hunian)\b/.test(keywords)) return "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=900&q=85";
+	if (/\b(sepatu|shoe|shoes|sneaker|sneakers|sandal|sandals|boots|boot|footwear|heels)\b/.test(keywords)) return "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=85";
+	if (/\b(boneka|doll|teddy|plush|stuffed toy|mainan|toy|toys|lego)\b/.test(keywords)) return "https://images.unsplash.com/photo-1559454403-b8fb88521f11?auto=format&fit=crop&w=900&q=85";
+	if (/\b(ikan|fish|aquarium|akuarium|clownfish)\b/.test(keywords)) return "https://images.unsplash.com/photo-1535591273668-578e31182c4f?auto=format&fit=crop&w=900&q=85";
+	if (/\b(tas|bag|handbag|tote|purse|backpack|ransel)\b/.test(keywords)) return "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85";
+	if (/\b(headphone|headphones|earphone|earphones|headset|audio)\b/.test(keywords)) return "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85";
+	if (/\b(buku|book|novel|journal|jurnal|notebook|komik|comic)\b/.test(keywords)) return "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=900&q=85";
+	if (/\b(tanaman|plant|flower|bunga|pot|succulent)\b/.test(keywords)) return "https://images.unsplash.com/photo-1485955900006-10f4d324d411?auto=format&fit=crop&w=900&q=85";
+	if (/\b(baju|shirt|t-shirt|kaos|clothes|clothing|jacket|jaket|dress|hoodie)\b/.test(keywords)) return "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=85";
+	if (/\b(jam|watch|smartwatch)\b/.test(keywords)) return "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=900&q=85";
+	if (/\b(laptop|computer|komputer)\b/.test(keywords)) return "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=900&q=85";
+	if (/\b(phone|ponsel|hp|smartphone|tablet|ipad)\b/.test(keywords)) return "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=85";
+	if (/\b(perhiasan|jewelry|jewellery|kalung|necklace|cincin|ring|gelang|bracelet|anting|earrings)\b/.test(keywords)) return "https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=900&q=85";
+	if (/\b(mobil|car|vehicle|kendaraan)\b/.test(keywords)) return "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=85";
+	if (/\b(sepeda|bicycle|bike)\b/.test(keywords)) return "https://images.unsplash.com/photo-1485965120184-e220f721d03e?auto=format&fit=crop&w=900&q=85";
+	if (/\b(anjing|dog|puppy|kucing|cat|pet|hewan)\b/.test(keywords)) return "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=900&q=85";
+	if (/\b(makeup|make-up|cosmetic|kosmetik|lipstick|lipstik|skincare|parfum|perfume)\b/.test(keywords)) return "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=900&q=85";
+	return "";
+}
+
+function generatedProductImage(title) {
+	const subject = String(title || "").trim();
+	if (!subject) return FALLBACK_IMAGE;
+	const prompt = `realistic product photo of a ${subject} on a clean studio background`;
+	return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=900&height=700&nologo=true`;
+}
+
+function automaticImage(title, category) {
+	return imageForKeywords(title) || (title ? generatedProductImage(title) : imageForKeywords(category) || FALLBACK_IMAGE);
+}
+
+function curatedFallbackImage(title, category) {
+	return imageForKeywords(title) || (!title ? imageForKeywords(category) : "") || FALLBACK_IMAGE;
 }
 
 function isCameraWish(value) {
@@ -284,7 +274,7 @@ function renderCard(item, isPreview) {
 	imageWrap.className = "card-image-wrap";
 	const image = document.createElement("img");
 	image.className = "card-image";
-	const fallbackImage = automaticImage(item.title, item.category);
+	const fallbackImage = curatedFallbackImage(item.title, item.category);
 	image.src = resolveWishImage(item.image, item.title, item.category);
 	image.alt = item.title;
 	image.loading = "lazy";
@@ -722,6 +712,10 @@ function openWishForm() {
 	categoryField.append(categoryLabel, category);
 	detailRow.append(priceField, categoryField);
 	form.append(detailRow, field("Image URL (optional)", "image", "url", "Kosongkan untuk foto otomatis"), field("A note to future you", "note", "text", "Why this one?"));
+	const imagePrivacy = document.createElement("p");
+	imagePrivacy.className = "local-notice";
+	imagePrivacy.textContent = "Foto otomatis dibuat dari nama barang lewat Pollinations. Isi URL sendiri jika tidak ingin nama barang dikirim ke layanan itu.";
+	form.append(imagePrivacy);
 
 	const submit = document.createElement("button");
 	submit.className = "primary-button modal-submit";
