@@ -561,6 +561,14 @@ function showToast(message) {
 	state.toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2600);
 }
 
+function wishlistSyncError(error) {
+	if (error?.code === "42P01") return "Wishlist table is missing. Run the latest supabase-schema.sql in Supabase SQL Editor.";
+	if (error?.code === "42703") return "Wishlist table is outdated. Run the latest supabase-schema.sql in Supabase SQL Editor.";
+	if (error?.code === "42501") return "Supabase blocked this save. Check the wishlist row-level security policies.";
+	if (error?.code === "23502" || error?.code === "23514") return "The price column must allow empty values. Run the latest supabase-schema.sql in Supabase SQL Editor.";
+	return `Couldn't sync this wish: ${error?.message || "check your Supabase connection and setup."}`;
+}
+
 function openModal(content) {
 	element("modal-content").replaceChildren(content);
 	element("modal-backdrop").hidden = false;
@@ -813,7 +821,7 @@ function openWishForm() {
 			}).select().single();
 			if (error) {
 				submit.disabled = false;
-				showToast("Couldn't sync this wish. Check your connection and try again.");
+				showToast(wishlistSyncError(error));
 				return;
 			}
 			state.account.items.unshift(mapCloudWish(data));
