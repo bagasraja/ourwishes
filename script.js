@@ -10,10 +10,10 @@ const cloudEnabled = Boolean(
 const cloud = cloudEnabled ? window.supabase.createClient(cloudConfig.url, cloudConfig.publishableKey) : null;
 const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=900&q=85";
 const PREVIEW_ITEMS = [
-	{ id: "demo-camera", title: "The everyday camera", category: "Little luxuries", price: 489, image: FALLBACK_IMAGE, note: "For ordinary days worth remembering.", received: false, createdAt: 4 },
-	{ id: "demo-bag", title: "The forever bag", category: "Little luxuries", price: 1280, image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85", note: "An everyday piece with a little polish.", received: false, createdAt: 3 },
-	{ id: "demo-headphones", title: "Cloud-soft headphones", category: "Little luxuries", price: 219, image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85", note: "A tiny bit of quiet, wherever I go.", received: false, createdAt: 2 },
-	{ id: "demo-sofa", title: "The Sunday sofa", category: "For the home", price: 1450, image: "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85", note: "For slow mornings and long movie nights.", received: false, createdAt: 1 }
+	{ id: "demo-camera", title: "The everyday camera", category: "Little luxuries", price: 5500000, image: FALLBACK_IMAGE, note: "For ordinary days worth remembering.", received: false, createdAt: 4 },
+	{ id: "demo-bag", title: "The forever bag", category: "Little luxuries", price: 1850000, image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85", note: "An everyday piece with a little polish.", received: false, createdAt: 3 },
+	{ id: "demo-headphones", title: "Cloud-soft headphones", category: "Little luxuries", price: 2250000, image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85", note: "A tiny bit of quiet, wherever I go.", received: false, createdAt: 2 },
+	{ id: "demo-sofa", title: "The Sunday sofa", category: "For the home", price: 18000000, image: "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85", note: "For slow mornings and long movie nights.", received: false, createdAt: 1 }
 ];
 
 const ICONS = {
@@ -32,7 +32,9 @@ const state = {
 };
 
 const element = (id) => document.getElementById(id);
-const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const money = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const normalizeUsername = (value) => String(value || "").trim().toLowerCase();
+const authEmailFor = (username) => `${normalizeUsername(username)}@accounts.ourwishes.invalid`;
 
 function readAccounts() {
 	try {
@@ -67,7 +69,7 @@ function mapCloudWish(row) {
 	return {
 		id: row.id,
 		title: row.title,
-		price: Number(row.price) || 0,
+		price: row.price === null ? null : Number(row.price) || 0,
 		category: row.category || "Unsorted",
 		image: row.image_url || "",
 		note: row.note || "",
@@ -76,8 +78,46 @@ function mapCloudWish(row) {
 	};
 }
 
+async function migrateLegacyWishlist(user) {
+	const markerKey = `wishwell.migrated.${user.id}`;
+	if (localStorage.getItem(markerKey)) return;
+	const username = normalizeUsername(user.user_metadata?.username || user.email?.split("@")[0]);
+	const legacy = readAccounts().find((account) =>
+		account.username === username || account.email === user.email?.toLowerCase() || normalizeUsername(account.name) === username
+	);
+	if (!legacy) {
+		localStorage.setItem(markerKey, "done");
+		return;
+	}
+	const { count, error: countError } = await cloud.from("wishlist_items").select("id", { count: "exact", head: true });
+	if (countError) throw countError;
+	if ((count || 0) > 0) {
+		localStorage.setItem(markerKey, "done");
+		return;
+	}
+	const categories = [...new Set([...DEFAULT_CATEGORIES, ...legacy.categories])].map((name) => ({ user_id: user.id, name }));
+	const { error: categoryError } = await cloud.from("wishlist_categories").upsert(categories, { onConflict: "user_id,name", ignoreDuplicates: true });
+	if (categoryError) throw categoryError;
+	if (legacy.items.length) {
+		const rows = legacy.items.map((item) => ({
+			user_id: user.id,
+			title: item.title,
+			price: item.price == null ? null : Number(item.price) || 0,
+			category: item.category || "Unsorted",
+			image_url: item.image || "",
+			note: item.note || "",
+			received: Boolean(item.received),
+			created_at: new Date(Number(item.createdAt) || Date.now()).toISOString()
+		}));
+		const { error } = await cloud.from("wishlist_items").insert(rows);
+		if (error) throw error;
+	}
+	localStorage.setItem(markerKey, "done");
+}
+
 async function activateCloudAccount(user) {
 	const userId = user.id;
+	await migrateLegacyWishlist(user);
 	const { error: seedError } = await cloud.from("wishlist_categories").upsert(
 		DEFAULT_CATEGORIES.map((name) => ({ user_id: userId, name })),
 		{ onConflict: "user_id,name", ignoreDuplicates: true }
@@ -94,7 +134,8 @@ async function activateCloudAccount(user) {
 	const categories = [...new Set([...DEFAULT_CATEGORIES, ...(categoryResult.data || []).map((row) => row.name), ...items.map((item) => item.category)])];
 	state.account = {
 		id: userId,
-		name: user.user_metadata?.name || user.email?.split("@")[0] || "Wishmaker",
+		name: user.user_metadata?.name || username || "Wishmaker",
+		username,
 		email: user.email || "",
 		items,
 		categories
@@ -133,13 +174,31 @@ function currentItems() {
 	return state.account ? state.account.items : PREVIEW_ITEMS;
 }
 
-function imageUrl(value) {
-	try {
-		const url = new URL(value);
-		return url.protocol === "https:" ? url.href : FALLBACK_IMAGE;
-	} catch {
-		return FALLBACK_IMAGE;
+function automaticImage(title, category) {
+	const keywords = `${title || ""} ${category || ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+	if (/\b(tas|bag|handbag|tote|purse|backpack|ransel)\b/.test(keywords)) {
+		return "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85";
 	}
+	if (/\b(headphone|headphones|earphone|earphones|headset|audio)\b/.test(keywords)) {
+		return "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85";
+	}
+	if (/\b(rumah|home|sofa|furniture|furnitur|lamp|lampu|vase|vas|meja|kursi|rak|bed|kasur)\b/.test(keywords)) {
+		return "https://images.unsplash.com/photo-1578500494198-246f612d3b3d?auto=format&fit=crop&w=900&q=85";
+	}
+	if (/\b(camera|kamera|photography|foto)\b/.test(keywords)) return FALLBACK_IMAGE;
+	return FALLBACK_IMAGE;
+}
+
+function resolveWishImage(value, title, category) {
+	if (String(value || "").trim()) {
+		try {
+			const url = new URL(value);
+			if (url.protocol === "https:") return url.href;
+		} catch {
+			return automaticImage(title, category);
+		}
+	}
+	return automaticImage(title, category);
 }
 
 function makeIcon(name) {
@@ -176,10 +235,11 @@ function renderCard(item, isPreview) {
 	imageWrap.className = "card-image-wrap";
 	const image = document.createElement("img");
 	image.className = "card-image";
-	image.src = imageUrl(item.image);
+	const fallbackImage = automaticImage(item.title, item.category);
+	image.src = resolveWishImage(item.image, item.title, item.category);
 	image.alt = item.title;
 	image.loading = "lazy";
-	image.addEventListener("error", () => { image.src = FALLBACK_IMAGE; }, { once: true });
+	image.addEventListener("error", () => { image.src = fallbackImage; }, { once: true });
 	imageWrap.append(image);
 
 	const category = document.createElement("span");
@@ -201,7 +261,7 @@ function renderCard(item, isPreview) {
 	title.textContent = item.title;
 	const price = document.createElement("span");
 	price.className = "card-price";
-	price.textContent = money.format(Number(item.price) || 0);
+	price.textContent = item.price == null || item.price === "" ? "—" : money.format(Number(item.price) || 0);
 	titleRow.append(title, price);
 
 	const note = document.createElement("p");
@@ -297,14 +357,14 @@ function renderAccount() {
 	copy.className = "account-copy";
 	const name = document.createElement("strong");
 	name.textContent = state.account.name;
-	const email = document.createElement("small");
-	email.textContent = state.account.email;
+	const username = document.createElement("small");
+	username.textContent = `@${state.account.username || state.account.name}`;
 	const signOut = document.createElement("button");
 	signOut.className = "sign-out-button";
 	signOut.type = "button";
 	signOut.textContent = "Sign out";
 	signOut.addEventListener("click", signOutAccount);
-	copy.append(name, email, signOut);
+	copy.append(name, username, signOut);
 	profile.append(avatar, copy);
 	area.append(profile);
 	setAvatar(topButton, initials, `Signed in as ${state.account.name}`, signOutAccount);
@@ -423,6 +483,13 @@ function field(labelText, name, type, placeholder, required = false) {
 	input.required = required;
 	if (type === "email") input.autocomplete = "email";
 	if (name === "name") input.autocomplete = "name";
+	if (name === "username") {
+		input.autocomplete = "username";
+		input.minLength = 3;
+		input.maxLength = 24;
+		input.pattern = "(?:[A-Za-z0-9._]|-){3,24}";
+		input.autocapitalize = "none";
+	}
 	if (type === "password") {
 		input.autocomplete = name === "password" ? "current-password" : "new-password";
 		input.minLength = name === "password" && placeholder.startsWith("At least") ? 8 : 1;
@@ -439,7 +506,7 @@ function openAuth(mode, errorMessage = "") {
 	heading.textContent = mode === "signup" ? "Make yourself at home." : "Lovely to see you again.";
 	const intro = document.createElement("p");
 	intro.className = "modal-intro";
-	intro.textContent = mode === "signup" ? "Your wishes, all in one place. Start with a little account." : "Sign in to pick up right where your daydreams left off.";
+	intro.textContent = mode === "signup" ? "Choose a username and password. No email needed." : "Sign in with your username to see your wishes.";
 	form.append(heading, intro);
 	if (errorMessage) {
 		const error = document.createElement("p");
@@ -448,8 +515,7 @@ function openAuth(mode, errorMessage = "") {
 		error.textContent = errorMessage;
 		form.append(error);
 	}
-	if (mode === "signup") form.append(field("Your name", "name", "text", "e.g. Jamie Taylor", true));
-	form.append(field("Email address", "email", "email", "you@example.com", true));
+	form.append(field("Username", "username", "text", "3–24 letters, numbers, . _ -", true));
 	form.append(field("Password", "password", "password", mode === "signup" ? "At least 8 characters" : "Your password", true));
 	const submit = document.createElement("button");
 	submit.className = "primary-button modal-submit";
@@ -466,7 +532,7 @@ function openAuth(mode, errorMessage = "") {
 	switchRow.append(switchButton);
 	const notice = document.createElement("p");
 	notice.className = "local-notice";
-	notice.textContent = cloudEnabled ? "Your wishes sync across devices when you sign in." : "This demo saves accounts in this browser only.";
+	notice.textContent = cloudEnabled ? "No email needed. Keep your username and password safe; password recovery isn't available." : "Saved in this browser only. Keep your username and password safe; there's no password recovery.";
 	form.append(switchRow, notice);
 	form.addEventListener("submit", (event) => authenticate(event, mode, form));
 	openModal(form);
@@ -485,38 +551,37 @@ async function authenticate(event, mode, form) {
 	submit.disabled = true;
 	submit.textContent = "One little moment…";
 	const values = new FormData(form);
-	const email = String(values.get("email")).trim().toLowerCase();
+	const username = normalizeUsername(values.get("username"));
 	const password = String(values.get("password"));
 	try {
 		if (cloudEnabled) {
 			if (mode === "signup") {
-				const name = String(values.get("name")).trim();
-				const { data, error } = await cloud.auth.signUp({ email, password, options: { data: { name } } });
+				const { data, error } = await cloud.auth.signUp({
+					email: authEmailFor(username),
+					password,
+					options: { data: { name: username, username } }
+				});
 				if (error) throw error;
-				if (!data.session || !data.user) {
-					closeModal();
-					showToast("Check your email to confirm the new account, then sign in.");
-					return;
-				}
+				if (!data.session || !data.user) throw new Error("Turn off email confirmation in Supabase Auth to use username-only registration.");
 				await activateCloudAccount(data.user);
 			} else {
-				const { data, error } = await cloud.auth.signInWithPassword({ email, password });
+				const { data, error } = await cloud.auth.signInWithPassword({ email: authEmailFor(username), password });
 				if (error) throw error;
 				await activateCloudAccount(data.user);
 			}
 		} else {
 		const accounts = readAccounts();
 		if (mode === "signup") {
-			const name = String(values.get("name")).trim();
-			if (accounts.some((account) => account.email === email)) throw new Error("There's already an account with that email. Try signing in.");
+			if (accounts.some((account) => account.username === username || account.email === authEmailFor(username) || account.email?.split("@")[0] === username)) throw new Error("That username is already taken. Try signing in or choose another.");
 			const salt = crypto.randomUUID();
-			const account = { id: crypto.randomUUID(), name, email, salt, passwordHash: await hashPassword(password, salt), items: [], categories: [...DEFAULT_CATEGORIES] };
+			const account = { id: crypto.randomUUID(), name: username, username, email: authEmailFor(username), salt, passwordHash: await hashPassword(password, salt), items: [], categories: [...DEFAULT_CATEGORIES] };
 			accounts.push(account);
 			writeAccounts(accounts);
 			state.account = account;
 		} else {
-			const account = accounts.find((candidate) => candidate.email === email);
-			if (!account || await hashPassword(password, account.salt) !== account.passwordHash) throw new Error("That email and password didn't match. Have another go?");
+			const account = accounts.find((candidate) => candidate.username === username || candidate.email === authEmailFor(username) || candidate.email?.split("@")[0] === username);
+			if (!account || await hashPassword(password, account.salt) !== account.passwordHash) throw new Error("That username and password didn't match. Have another go?");
+			account.username ||= username;
 			state.account = account;
 		}
 		}
@@ -525,7 +590,7 @@ async function authenticate(event, mode, form) {
 		state.category = "";
 		closeModal();
 		render();
-		showToast(mode === "signup" ? `Welcome to your happy place, ${state.account.name.split(" ")[0]}.` : `Welcome back, ${state.account.name.split(" ")[0]}.`);
+		showToast(mode === "signup" ? `Welcome to your happy place, ${state.account.name}.` : `Welcome back, ${state.account.name}.`);
 	} catch (error) {
 		openAuth(mode, error instanceof Error ? error.message : "Something went wrong. Please try again.");
 	}
@@ -566,9 +631,33 @@ function openWishForm() {
 
 	const detailRow = document.createElement("div");
 	detailRow.className = "form-row";
-	const price = field("Price", "price", "number", "0");
-	price.querySelector("input").min = "0";
-	price.querySelector("input").step = "any";
+	const priceField = document.createElement("label");
+	priceField.className = "form-field";
+	const priceLabel = document.createElement("span");
+	priceLabel.textContent = "Harga (IDR)";
+	const priceMode = document.createElement("select");
+	priceMode.name = "priceMode";
+	const unknownPrice = document.createElement("option");
+	unknownPrice.value = "unknown";
+	unknownPrice.textContent = "— Belum tahu harganya";
+	const knownPrice = document.createElement("option");
+	knownPrice.value = "known";
+	knownPrice.textContent = "Masukkan harga";
+	priceMode.append(unknownPrice, knownPrice);
+	const priceInput = document.createElement("input");
+	priceInput.className = "price-input";
+	priceInput.type = "number";
+	priceInput.name = "price";
+	priceInput.min = "0";
+	priceInput.step = "1";
+	priceInput.placeholder = "Contoh: 250000";
+	priceInput.hidden = true;
+	priceMode.addEventListener("change", () => {
+		priceInput.hidden = priceMode.value !== "known";
+		priceInput.required = priceMode.value === "known";
+		if (priceInput.hidden) priceInput.value = "";
+	});
+	priceField.append(priceLabel, priceMode, priceInput);
 	const categoryField = document.createElement("label");
 	categoryField.className = "form-field";
 	const categoryLabel = document.createElement("span");
@@ -582,8 +671,8 @@ function openWishForm() {
 		category.append(option);
 	});
 	categoryField.append(categoryLabel, category);
-	detailRow.append(price, categoryField);
-	form.append(detailRow, field("Image URL (optional)", "image", "url", "https://…"), field("A note to future you", "note", "text", "Why this one?"));
+	detailRow.append(priceField, categoryField);
+	form.append(detailRow, field("Image URL (optional)", "image", "url", "Kosongkan untuk foto otomatis"), field("A note to future you", "note", "text", "Why this one?"));
 
 	const submit = document.createElement("button");
 	submit.className = "primary-button modal-submit";
@@ -594,12 +683,15 @@ function openWishForm() {
 		event.preventDefault();
 		submit.disabled = true;
 		const values = new FormData(form);
-		const rawPrice = Number(values.get("price"));
+		const rawPriceText = String(values.get("price") || "").trim();
+		const rawPrice = Number(rawPriceText);
+		const title = String(values.get("title")).trim();
+		const categoryName = String(values.get("category")) || "Unsorted";
 		const wish = {
-			title: String(values.get("title")).trim(),
-			price: Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0,
-			category: String(values.get("category")) || "Unsorted",
-			image: imageUrl(String(values.get("image"))),
+			title,
+			price: values.get("priceMode") === "known" && Number.isFinite(rawPrice) && rawPrice >= 0 ? rawPrice : null,
+			category: categoryName,
+			image: resolveWishImage(String(values.get("image")), title, categoryName),
 			note: String(values.get("note")).trim(),
 			received: false,
 			createdAt: Date.now()
@@ -631,7 +723,7 @@ function openWishForm() {
 	openModal(form);
 }
 
-function addCategory() {
+async function addCategory() {
 	if (!state.account) {
 		openAuth("signup");
 		return;
@@ -641,9 +733,11 @@ function addCategory() {
 	const name = enteredName.trim().slice(0, 32);
 	if (!state.account.categories.includes(name)) {
 		if (cloudEnabled) {
-			cloud.from("wishlist_categories").insert({ user_id: state.account.id, name }).then(({ error }) => {
-				if (error) showToast("Couldn't sync that collection. Try again.");
-			});
+			const { error } = await cloud.from("wishlist_categories").insert({ user_id: state.account.id, name });
+			if (error) {
+				showToast("Couldn't sync that collection. Try again.");
+				return;
+			}
 		}
 		state.account.categories.push(name);
 		if (!cloudEnabled) persistAccount();
@@ -675,11 +769,37 @@ function bindEvents() {
 	});
 }
 
-function initialize() {
+async function initialize() {
+	bindEvents();
+	if (cloudEnabled) {
+		const { data, error } = await cloud.auth.getSession();
+		if (error) {
+			console.error("Could not restore the Supabase session", error);
+			showToast("Couldn't connect to your synced wishlist.");
+		} else if (data.session?.user) {
+			try {
+				await activateCloudAccount(data.session.user);
+			} catch (loadError) {
+				console.error("Could not load the Supabase wishlist", loadError);
+				showToast("Couldn't load your wishlist. Check the Supabase setup.");
+			}
+		}
+		cloud.auth.onAuthStateChange((event) => {
+			if (event === "SIGNED_OUT") {
+				if (state.cloudChannel) cloud.removeChannel(state.cloudChannel);
+				state.cloudChannel = null;
+				state.account = null;
+				state.filter = "all";
+				state.category = "";
+				render();
+			}
+		});
+		render();
+		return;
+	}
 	const sessionId = localStorage.getItem(SESSION_KEY);
 	state.account = readAccounts().find((account) => account.id === sessionId) || null;
 	if (!state.account && sessionId) localStorage.removeItem(SESSION_KEY);
-	bindEvents();
 	render();
 }
 
