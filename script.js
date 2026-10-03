@@ -144,6 +144,7 @@ async function activateCloudAccount(user) {
 		id: userId,
 		name: user.user_metadata?.name || username || "Wishmaker",
 		username,
+		avatarPhoto: user.user_metadata?.avatar_photo || "",
 		email: user.email || "",
 		items,
 		categories
@@ -383,6 +384,7 @@ function renderAccount() {
 		signIn.addEventListener("click", () => openAuth("login"));
 		area.append(signIn);
 		setAvatar(topButton, "?", "Sign in or create an account", () => openAuth("login"));
+		closeProfileMenu();
 		return;
 	}
 
@@ -391,7 +393,7 @@ function renderAccount() {
 	profile.className = "account-card signed-in-account";
 	const avatar = document.createElement("span");
 	avatar.className = "account-avatar signed-avatar";
-	avatar.textContent = initials;
+	setAvatarContents(avatar, initials, state.account.avatarPhoto);
 	const copy = document.createElement("span");
 	copy.className = "account-copy";
 	const name = document.createElement("strong");
@@ -402,19 +404,79 @@ function renderAccount() {
 	signOut.className = "sign-out-button";
 	signOut.type = "button";
 	signOut.textContent = "Sign out";
-	signOut.addEventListener("click", signOutAccount);
+	signOut.hidden = true;
 	copy.append(name, username, signOut);
 	profile.append(avatar, copy);
 	area.append(profile);
-	setAvatar(topButton, initials, `Signed in as ${state.account.name}`, signOutAccount);
+	setAvatar(topButton, initials, `Profile options for ${state.account.name}`, toggleProfileMenu, state.account.avatarPhoto);
 }
 
-function setAvatar(button, text, label, onClick) {
-	const value = document.createElement("span");
-	value.textContent = text;
-	button.replaceChildren(value);
+function setAvatarContents(container, text, photo) {
+	container.replaceChildren();
+	if (photo) {
+		const image = document.createElement("img");
+		image.src = photo;
+		image.alt = "";
+		image.className = "profile-photo";
+		container.append(image);
+	} else {
+		const value = document.createElement("span");
+		value.textContent = text;
+		container.append(value);
+	}
+}
+
+function setAvatar(button, text, label, onClick, photo = "") {
+	setAvatarContents(button, text, photo);
 	button.setAttribute("aria-label", label);
+	button.setAttribute("aria-expanded", "false");
 	button.onclick = onClick;
+}
+
+function toggleProfileMenu() {
+	const menu = element("profile-menu");
+	const open = menu.hidden;
+	menu.hidden = !open;
+	element("top-account").setAttribute("aria-expanded", String(open));
+}
+
+function closeProfileMenu() {
+	const menu = element("profile-menu");
+	if (!menu) return;
+	menu.hidden = true;
+	element("top-account").setAttribute("aria-expanded", "false");
+}
+
+async function compressProfilePhoto(file) {
+	if (!file.type.startsWith("image/")) throw new Error("Choose an image file for your profile photo.");
+	if (file.size > 12 * 1024 * 1024) throw new Error("Choose an image smaller than 12 MB.");
+	const bitmap = await createImageBitmap(file);
+	const scale = Math.min(1, 384 / Math.max(bitmap.width, bitmap.height));
+	const canvas = document.createElement("canvas");
+	canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+	canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+	const context = canvas.getContext("2d");
+	context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+	bitmap.close();
+	return canvas.toDataURL("image/jpeg", 0.78);
+}
+
+async function uploadProfilePhoto(file) {
+	if (!state.account || !file) return;
+	try {
+		const photo = await compressProfilePhoto(file);
+		if (cloudEnabled) {
+			const { error } = await cloud.auth.updateUser({ data: { avatar_photo: photo } });
+			if (error) throw error;
+		}
+		state.account.avatarPhoto = photo;
+		if (!cloudEnabled) persistAccount();
+		closeProfileMenu();
+		renderAccount();
+		showToast("Profile photo updated.");
+	} catch (error) {
+		showToast(error instanceof Error ? error.message : "Couldn't update the profile photo.");
+	}
 }
 
 function getVisibleItems() {
@@ -803,8 +865,27 @@ function bindEvents() {
 	element("sort-select").addEventListener("change", (event) => { state.sort = event.target.value; render(); });
 	element("modal-close").addEventListener("click", closeModal);
 	element("modal-backdrop").addEventListener("click", (event) => { if (event.target === element("modal-backdrop")) closeModal(); });
+	element("upload-avatar").addEventListener("click", () => {
+		closeProfileMenu();
+		element("avatar-file").click();
+	});
+	element("avatar-file").addEventListener("change", (event) => {
+		const [file] = event.target.files || [];
+		if (file) uploadProfilePhoto(file);
+		event.target.value = "";
+	});
+	element("profile-logout").addEventListener("click", () => {
+		closeProfileMenu();
+		signOutAccount();
+	});
+	document.addEventListener("click", (event) => {
+		if (!event.target.closest(".topbar-actions")) closeProfileMenu();
+	});
 	document.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") closeModal();
+		if (event.key === "Escape") {
+			closeModal();
+			closeProfileMenu();
+		}
 		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 			event.preventDefault();
 			element("search-input").focus();
