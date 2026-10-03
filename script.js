@@ -125,6 +125,7 @@ async function migrateLegacyWishlist(user) {
 
 async function activateCloudAccount(user) {
 	const userId = user.id;
+	const username = normalizeUsername(user.user_metadata?.username || user.email?.split("@")[0]);
 	await migrateLegacyWishlist(user);
 	const { error: seedError } = await cloud.from("wishlist_categories").upsert(
 		DEFAULT_CATEGORIES.map((name) => ({ user_id: userId, name })),
